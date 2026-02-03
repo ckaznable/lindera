@@ -27,6 +27,12 @@ pub trait DictionaryLoader {
             "This loader does not support load_from_path function"
         )))
     }
+
+    fn load_temporary(&self) -> LinderaResult<Dictionary> {
+        Err(LinderaErrorKind::Io.with_error(anyhow::anyhow!(
+            "This loader does not support load_temporary function"
+        )))
+    }
 }
 
 pub struct FSDictionaryLoader;

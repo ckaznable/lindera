@@ -228,6 +228,11 @@ pub fn load_embedded_dictionary(kind: DictionaryKind) -> LinderaResult<Dictionar
         .map_err(|e| LinderaErrorKind::NotFound.with_error(e))
 }
 
+pub fn load_dictionary_temporary(kind: DictionaryKind) -> LinderaResult<Dictionary> {
+    let loader = resolve_embedded_loader(kind)?;
+    loader.load_temporary()
+}
+
 pub fn load_dictionary(uri: &str) -> LinderaResult<Dictionary> {
     // Try to parse as URI first, but only if it looks like a URI
     // (contains "://" or starts with known schemes)

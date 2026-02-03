@@ -143,4 +143,106 @@ impl DictionaryLoader for EmbeddedIPADICLoader {
     fn load(&self) -> LinderaResult<Dictionary> {
         load()
     }
+
+    fn load_temporary(&self) -> LinderaResult<Dictionary> {
+        load_temporary()
+    }
+}
+
+/// Decompress embedded data or return raw bytes.
+/// This function does not use static caching - it decompresses on every call.
+#[cfg(feature = "compress")]
+fn decompress_embedded_data(bytes: &[u8]) -> Vec<u8> {
+    // First check if this is compressed data by attempting to check aligned root
+    let mut aligned = rkyv::util::AlignedVec::<16>::new();
+    aligned.extend_from_slice(bytes);
+    match rkyv::from_bytes::<CompressedData, rkyv::rancor::Error>(&aligned) {
+        Ok(compressed_data) => {
+            // Decompress it
+            match decompress(compressed_data) {
+                Ok(decompressed) => decompressed,
+                Err(_) => {
+                    // Decompression failed, fall back to raw data
+                    bytes.to_vec()
+                }
+            }
+        }
+        Err(_) => {
+            // Not compressed data format, use as raw binary
+            bytes.to_vec()
+        }
+    }
+}
+
+/// Load dictionary without static caching.
+/// This function creates a new dictionary instance on every call,
+/// decompressing data each time (if compression is enabled).
+pub fn load_temporary() -> LinderaResult<Dictionary> {
+    // Load metadata from embedded binary data
+    let metadata = Metadata::load(METADATA_DATA)?;
+
+    // Include raw bytes for temporary loading
+    let char_def_bytes = include_bytes!(concat!(
+        env!("LINDERA_WORKDIR"),
+        "/lindera-ipadic/char_def.bin"
+    ));
+    let matrix_bytes = include_bytes!(concat!(
+        env!("LINDERA_WORKDIR"),
+        "/lindera-ipadic/matrix.mtx"
+    ));
+    let da_bytes = include_bytes!(concat!(env!("LINDERA_WORKDIR"), "/lindera-ipadic/dict.da"));
+    let vals_bytes = include_bytes!(concat!(
+        env!("LINDERA_WORKDIR"),
+        "/lindera-ipadic/dict.vals"
+    ));
+    let wordsidx_bytes = include_bytes!(concat!(
+        env!("LINDERA_WORKDIR"),
+        "/lindera-ipadic/dict.wordsidx"
+    ));
+    let words_bytes = include_bytes!(concat!(
+        env!("LINDERA_WORKDIR"),
+        "/lindera-ipadic/dict.words"
+    ));
+    let unk_bytes = include_bytes!(concat!(env!("LINDERA_WORKDIR"), "/lindera-ipadic/unk.bin"));
+
+    #[cfg(feature = "compress")]
+    {
+        let char_def_data = decompress_embedded_data(char_def_bytes);
+        let matrix_data = decompress_embedded_data(matrix_bytes);
+        let da_data = decompress_embedded_data(da_bytes);
+        let vals_data = decompress_embedded_data(vals_bytes);
+        let wordsidx_data = decompress_embedded_data(wordsidx_bytes);
+        let words_data = decompress_embedded_data(words_bytes);
+        let unk_data = decompress_embedded_data(unk_bytes);
+
+        Ok(Dictionary {
+            prefix_dictionary: PrefixDictionary::load(
+                da_data,
+                vals_data,
+                wordsidx_data,
+                words_data,
+                true,
+            ),
+            connection_cost_matrix: ConnectionCostMatrix::load(matrix_data),
+            character_definition: CharacterDefinition::load(&char_def_data)?,
+            unknown_dictionary: UnknownDictionary::load(&unk_data)?,
+            metadata,
+        })
+    }
+    #[cfg(not(feature = "compress"))]
+    {
+        Ok(Dictionary {
+            prefix_dictionary: PrefixDictionary::load(
+                da_bytes,
+                vals_bytes,
+                wordsidx_bytes,
+                words_bytes,
+                true,
+            ),
+            connection_cost_matrix: ConnectionCostMatrix::load(matrix_bytes),
+            character_definition: CharacterDefinition::load(char_def_bytes)?,
+            unknown_dictionary: UnknownDictionary::load(unk_bytes)?,
+            metadata,
+        })
+    }
 }
